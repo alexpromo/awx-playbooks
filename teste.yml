@@ -1,0 +1,13 @@
+---
+- name: Teste Windows WinRM
+  hosts: all
+  gather_facts: no
+
+  tasks:
+
+    - name: Executar hostname
+      win_shell: hostname
+      register: resultado
+
+    - debug:
+        var: resultado.stdout
