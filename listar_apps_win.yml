@@ -1,22 +1,21 @@
 ---
-- name: Auditoria Windows usando Nome Real da Maquina
+- name: Auditoria de Apps - Sincronizando com Zabbix por IP
   hosts: all
-  gather_facts: yes # Isso faz o Ansible descobrir o nome real da maquina automaticamente
+  gather_facts: no
 
+  # ESTE BLOCO ABAIXO EH O QUE ESTA FALTANDO OU COM ERRO DE ESPACOS
   vars:
-    zabbix_server_url: "http://192.168.1.14:8080/api_jsonrpc.php"
-    zabbix_api_token: "3626f0dcb324a8ab4c948ea90dccb7c6a934a03e01ea3cc386eae6eca61e3dd8"
+    zabbix_url: "http://192.168.1.14:8080/api_jsonrpc.php"
+    zabbix_token: "3626f0dcb324a8ab4c948ea90dccb7c6a934a03e01ea3cc386eae6eca61e3dd8"
 
   tasks:
-    # 1. Coleta os dados no Windows
-    - name: Verificar atualizações no Windows
+    - name: Verificar atualizações no Windows via Winget
       ansible.windows.win_shell: |
         $list = winget upgrade --include-unknown | Select-String "available"
         if ($list) { $list | Out-String } else { "Tudo atualizado" }
       register: winget_out
       ignore_errors: yes
 
-    # 2. Pergunta ao Zabbix qual o "Nome" do host que tem esse IP
     - name: Buscar nome do Host no Zabbix pelo IP
       delegate_to: localhost
       ansible.builtin.uri:
@@ -28,18 +27,16 @@
           method: "host.get"
           params:
             filter:
-              ip: "{{ inventory_hostname }}" # Procura pelo IP que o AWX está usando
+              ip: "{{ inventory_hostname }}"
             output: ["host"]
           auth: "{{ zabbix_token }}"
           id: 1
       register: zabbix_host_search
 
-    # 3. Extrai o nome encontrado (ex: 04BALCAO01)
-    - name: Definir nome real do host
+    - name: Definir nome real do host ou usar IP se nao achar
       ansible.builtin.set_fact:
-        zabbix_real_name: "{{ zabbix_host_search.json.result[0].host | default(inventory_hostname) }}"
+        zabbix_real_name: "{{ zabbix_host_search.json.result[0].host | default('') }}"
 
-    # 4. Envia o dado para o Zabbix usando o Nome correto
     - name: Enviar dados para o Zabbix
       delegate_to: localhost
       ansible.builtin.uri:
@@ -48,11 +45,11 @@
         body_format: json
         body:
           jsonrpc: "2.0"
-          method: "history.push" # Funciona no Zabbix 6.4+. Se for antigo, use o zabbix_sender
+          method: "history.push"
           params:
             - host: "{{ zabbix_real_name }}"
               key: "apps.updates.list"
               value: "{{ winget_out.stdout | default('Erro ao coletar') }}"
           auth: "{{ zabbix_token }}"
           id: 1
-      when: zabbix_host_search.json.result | length > 0
+      when: zabbix_real_name != ""
