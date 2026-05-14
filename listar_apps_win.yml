@@ -1,26 +1,49 @@
 ---
-- name: Envio Direto Zabbix Sender
+- name: Auditoria de Apps - Solucao Final
   hosts: all
   gather_facts: yes
 
   tasks:
-    - name: 1. Coletar atualizacoes em texto limpo
+    - name: 1. Coletar atualizacoes do Windows
       ansible.windows.win_shell: |
         $list = winget upgrade --include-unknown | Select-String "available"
         if ($list) { 
-            ($list.Line) -join ", " 
+            ($list.Line) -join " | " 
         } else { 
             "Tudo atualizado" 
         }
-      register: winget_limpo
+      register: winget_out
       ignore_errors: yes
 
-    - name: 2. Enviar para o Zabbix 
+    - name: 2. Enviar para o Zabbix (Via Python Failsafe)
       delegate_to: localhost
-      community.zabbix.zabbix_sender:
-        server: "192.168.1.14"
-        port: 10051
-        host: "{{ ansible_hostname }}"
-        key: "apps.updates.list"
-        value: "{{ winget_limpo.stdout | trim }}"
-      ignore_errors: yes
+      environment:
+        Z_HOST: "{{ ansible_hostname }}"
+        Z_VAL: "{{ winget_out.stdout | trim | default('Sem dados') }}"
+      ansible.builtin.shell: |
+        python3 - <<EOF
+        import socket, struct, json, os
+        host = os.getenv('Z_HOST')
+        val = os.getenv('Z_VAL')
+        server = "192.168.1.14" # IP do seu Zabbix
+        port = 10051
+        
+        # Monta o pacote de dados do Zabbix
+        payload = json.dumps({
+            "request": "sender data",
+            "data": [{"host": host, "key": "apps.updates.list", "value": val}]
+        }).encode('utf-8')
+        
+        header = b'ZBXD\x01' + struct.pack('<Q', len(payload))
+        
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(5)
+            s.connect((server, port))
+            s.sendall(header + payload)
+            print(s.recv(1024).decode('utf-8'))
+        EOF
+      register: zabbix_res
+
+    - name: 3. Verificar resposta
+      ansible.builtin.debug:
+        msg: "Zabbix diz: {{ zabbix_res.stdout }}"
