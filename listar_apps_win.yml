@@ -1,32 +1,58 @@
 ---
-- name: Auditoria Completa de Aplicativos e Atualizacoes
+- name: Auditoria Windows usando Nome Real da Maquina
   hosts: all
-  gather_facts: no
+  gather_facts: yes # Isso faz o Ansible descobrir o nome real da maquina automaticamente
+
+  vars:
+    zabbix_server_url: "http://192.168.1.14/zabbix/api_jsonrpc.php"
+    zabbix_api_token: "3626f0dcb324a8ab4c948ea90dccb7c6a934a03e01ea3cc386eae6eca61e3dd8"
 
   tasks:
-    - name: Verificar Apps instalados e Versoes disponiveis
+    # 1. Coleta os dados no Windows
+    - name: Verificar atualizações no Windows
       ansible.windows.win_shell: |
-        # Força o Winget a listar e formatar como tabela limpa
-        winget list --accept-source-agreements | Select-Object -Skip 2 | ForEach-Object {
-            if ($_ -match '^(?<Name>.*?)\s+(?<Id>\S+)\s+(?<Version>\S+)\s+(?<Available>\S+)?\s+(?<Source>\S+)?$') {
-                [PSCustomObject]@{
-                    Nome       = $Matches.Name.Trim()
-                    Versao     = $Matches.Version
-                    NovaVersao = if ($Matches.Available) { $Matches.Available } else { "Atualizado" }
-                    Update     = if ($Matches.Available) { $true } else { $false }
-                }
-            }
-        } | ConvertTo-Json
-      register: winget_output
+        $list = winget upgrade --include-unknown | Select-String "available"
+        if ($list) { $list | Out-String } else { "Tudo atualizado" }
+      register: winget_out
+      ignore_errors: yes
 
-    - name: Criar um dicionario de dados
+    # 2. Pergunta ao Zabbix qual o "Nome" do host que tem esse IP
+    - name: Buscar nome do Host no Zabbix pelo IP
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "{{ zabbix_url }}"
+        method: POST
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: "host.get"
+          params:
+            filter:
+              ip: "{{ inventory_hostname }}" # Procura pelo IP que o AWX está usando
+            output: ["host"]
+          auth: "{{ zabbix_token }}"
+          id: 1
+      register: zabbix_host_search
+
+    # 3. Extrai o nome encontrado (ex: 04BALCAO01)
+    - name: Definir nome real do host
       ansible.builtin.set_fact:
-        meu_inventario_apps: "{{ winget_output.stdout | from_json }}"
+        zabbix_real_name: "{{ zabbix_host_search.json.result[0].host | default(inventory_hostname) }}"
 
-    - name: Mostrar no Log quem precisa de update
-      ansible.builtin.debug:
-        msg: "O App {{ item.Nome }} está na versão {{ item.Versao }} e pode ir para {{ item.NovaVersao }}"
-      loop: "{{ meu_inventario_apps }}"
-      when: item.Update == true
-      loop_control:
-        label: "{{ item.Nome }}"
+    # 4. Envia o dado para o Zabbix usando o Nome correto
+    - name: Enviar dados para o Zabbix
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "{{ zabbix_url }}"
+        method: POST
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: "history.push" # Funciona no Zabbix 6.4+. Se for antigo, use o zabbix_sender
+          params:
+            - host: "{{ zabbix_real_name }}"
+              key: "apps.updates.list"
+              value: "{{ winget_out.stdout | default('Erro ao coletar') }}"
+          auth: "{{ zabbix_token }}"
+          id: 1
+      when: zabbix_host_search.json.result | length > 0
