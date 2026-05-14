@@ -1,48 +1,26 @@
 ---
-- name: Auditoria de Apps - Zabbix 7.2 Final
+- name: Envio Direto Zabbix Sender
   hosts: all
   gather_facts: yes
 
-  vars:
-    # Use o IP e Porta que funcionou no seu teste de CURL
-    zabbix_api_url: "http://192.168.1.14:8080/api_jsonrpc.php"
-    zabbix_token: "3626f0dcb324a8ab4c948ea90dccb7c6a934a03e01ea3cc386eae6eca61e3dd8"
-
   tasks:
-    - name: 1. Coletar atualizações no Windows
+    - name: 1. Coletar atualizacoes em texto limpo
       ansible.windows.win_shell: |
         $list = winget upgrade --include-unknown | Select-String "available"
         if ($list) { 
-            $text = $list | Out-String
-            # Remove aspas duplas que quebram o JSON da API
-            $text.Replace('"', "'")
+            ($list.Line) -join ", " 
         } else { 
             "Tudo atualizado" 
         }
-      register: winget_out
+      register: winget_limpo
       ignore_errors: yes
 
-    - name: 2. Enviar para o Zabbix 7.2
+    - name: 2. Enviar para o Zabbix 
       delegate_to: localhost
-      ansible.builtin.uri:
-        url: "{{ zabbix_api_url }}"
-        method: POST
-        body_format: json
-        body:
-          jsonrpc: "2.0"
-          method: "history.push"
-          params:
-            - host: "{{ ansible_hostname }}" 
-              key: "apps.updates.list"
-              value: "{{ winget_out.stdout | trim }}"
-          auth: "{{ zabbix_token }}"
-          id: 1
-      register: zabbix_api_response
+      community.zabbix.zabbix_sender:
+        server: "192.168.1.14"
+        port: 10051
+        host: "{{ ansible_hostname }}"
+        key: "apps.updates.list"
+        value: "{{ winget_limpo.stdout | trim }}"
       ignore_errors: yes
-
-    - name: 3. DEBUG - Resposta do Zabbix
-      ansible.builtin.debug:
-        msg: 
-          - "Host no Zabbix esperado: {{ ansible_hostname }}"
-          - "Resposta da API: {{ zabbix_api_response.json.result | default(zabbix_api_response.json.error) }}"
-      when: zabbix_api_response.json is defined
