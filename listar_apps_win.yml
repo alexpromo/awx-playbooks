@@ -1,11 +1,11 @@
-  ---
+---
 - name: Auditoria de Apps - Sincronizando com Zabbix
   hosts: all
   gather_facts: no
 
   vars:
     zabbix_url: "http://192.168.1.14:8080/api_jsonrpc.php"
-    zabbix_token: "3626f0dcb324a8ab4c948ea90dccb7c6a934a03e01ea3cc386eae6eca61e3dd8"
+    zabbix_token: "COLE_AQUI_SEU_TOKEN"
 
   tasks:
     - name: 1. Verificar atualizações no Windows via Winget
@@ -47,17 +47,21 @@
           auth: "{{ zabbix_token }}"
           id: 1
       register: zabbix_host_search
-      when: zabbix_interface_search.json.result | length > 0
+      when: 
+        - zabbix_interface_search.json is defined
+        - zabbix_interface_search.json.result | length > 0
 
     - name: 4. Definir nome real do host
       ansible.builtin.set_fact:
         zabbix_real_name: "{{ zabbix_host_search.json.result[0].host | default('') }}"
-      when: zabbix_host_search.json is defined
+      when: 
+        - zabbix_host_search.json is defined
+        - zabbix_host_search.json.result is defined
 
     - name: 5. DEBUG - Mostrar o nome encontrado
       ansible.builtin.debug:
         msg: "IP {{ inventory_hostname }} mapeado para o Host Zabbix: {{ zabbix_real_name }}"
-      when: zabbix_real_name != ""
+      when: zabbix_real_name | default('') != ""
 
     - name: 6. Enviar dados para o Zabbix
       delegate_to: localhost
@@ -74,4 +78,4 @@
               value: "{{ winget_out.stdout | default('Sem dados') }}"
           auth: "{{ zabbix_token }}"
           id: 1
-      when: zabbix_real_name != ""
+      when: zabbix_real_name | default('') != ""
