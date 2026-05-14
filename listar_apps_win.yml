@@ -1,10 +1,22 @@
 ---
-- name: Listar aplicativos no Windows
+- name: Listar aplicativos no Windows (Apenas maquinas online)
   hosts: all
   gather_facts: no
 
   tasks:
-    - name: Obter lista de programas via PowerShell (Registro do Windows)
+    # 1. O servidor AWX faz um teste super rápido (2 segundos) para ver se a máquina existe e responde
+    - name: Verificar se a maquina esta ligada (Testando a porta do WinRM)
+      ansible.builtin.wait_for:
+        host: "{{ inventory_hostname }}"
+        port: 5985
+        state: started
+        timeout: 2
+      delegate_to: localhost
+      ignore_errors: yes
+      register: teste_conexao
+
+    # 2. Só tenta executar o comando no Windows SE o teste acima deu "OK"
+    - name: Obter lista de programas via PowerShell
       ansible.windows.win_shell: |
         Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*, HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
         Select-Object DisplayName |
@@ -12,7 +24,13 @@
         Sort-Object DisplayName -Unique |
         Select-Object -ExpandProperty DisplayName
       register: apps_windows
+      when: teste_conexao is success
+      ignore_unreachable: yes
 
+    # 3. Só mostra o resultado se o passo 2 funcionou
     - name: Mostrar os programas no Log do AWX
       ansible.builtin.debug:
         msg: "A máquina {{ inventory_hostname }} tem os programas: {{ apps_windows.stdout_lines | join(', ') }}"
+      when: 
+        - teste_conexao is success
+        - apps_windows.stdout_lines is defined
