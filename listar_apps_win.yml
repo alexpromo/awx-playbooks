@@ -1,0 +1,18 @@
+---
+- name: Listar aplicativos no Windows
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Obter lista de programas via PowerShell (Registro do Windows)
+      ansible.windows.win_shell: |
+        Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*, HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
+        Select-Object DisplayName |
+        Where-Object { $_.DisplayName -ne $null } |
+        Sort-Object DisplayName -Unique |
+        Select-Object -ExpandProperty DisplayName
+      register: apps_windows
+
+    - name: Mostrar os programas no Log do AWX
+      ansible.builtin.debug:
+        msg: "A máquina {{ inventory_hostname }} tem os programas: {{ apps_windows.stdout_lines | join(', ') }}"
