@@ -1,36 +1,32 @@
 ---
-- name: Listar aplicativos no Windows (Apenas maquinas online)
+- name: Auditoria Completa de Aplicativos e Atualizacoes
   hosts: all
   gather_facts: no
 
   tasks:
-    # 1. O servidor AWX faz um teste super rápido (2 segundos) para ver se a máquina existe e responde
-    - name: Verificar se a maquina esta ligada (Testando a porta do WinRM)
-      ansible.builtin.wait_for:
-        host: "{{ inventory_hostname }}"
-        port: 5985
-        state: started
-        timeout: 2
-      delegate_to: localhost
-      ignore_errors: yes
-      register: teste_conexao
-
-    # 2. Só tenta executar o comando no Windows SE o teste acima deu "OK"
-    - name: Obter lista de programas via PowerShell
+    - name: Verificar Apps instalados e Versoes disponiveis
       ansible.windows.win_shell: |
-        Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*, HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
-        Select-Object DisplayName |
-        Where-Object { $_.DisplayName -ne $null } |
-        Sort-Object DisplayName -Unique |
-        Select-Object -ExpandProperty DisplayName
-      register: apps_windows
-      when: teste_conexao is success
-      ignore_unreachable: yes
+        # Força o Winget a listar e formatar como tabela limpa
+        winget list --accept-source-agreements | Select-Object -Skip 2 | ForEach-Object {
+            if ($_ -match '^(?<Name>.*?)\s+(?<Id>\S+)\s+(?<Version>\S+)\s+(?<Available>\S+)?\s+(?<Source>\S+)?$') {
+                [PSCustomObject]@{
+                    Nome       = $Matches.Name.Trim()
+                    Versao     = $Matches.Version
+                    NovaVersao = if ($Matches.Available) { $Matches.Available } else { "Atualizado" }
+                    Update     = if ($Matches.Available) { $true } else { $false }
+                }
+            }
+        } | ConvertTo-Json
+      register: winget_output
 
-    # 3. Só mostra o resultado se o passo 2 funcionou
-    - name: Mostrar os programas no Log do AWX
+    - name: Criar um dicionario de dados
+      ansible.builtin.set_fact:
+        meu_inventario_apps: "{{ winget_output.stdout | from_json }}"
+
+    - name: Mostrar no Log quem precisa de update
       ansible.builtin.debug:
-        msg: "A máquina {{ inventory_hostname }} tem os programas: {{ apps_windows.stdout_lines | join(', ') }}"
-      when: 
-        - teste_conexao is success
-        - apps_windows.stdout_lines is defined
+        msg: "O App {{ item.Nome }} está na versão {{ item.Versao }} e pode ir para {{ item.NovaVersao }}"
+      loop: "{{ meu_inventario_apps }}"
+      when: item.Update == true
+      loop_control:
+        label: "{{ item.Nome }}"
