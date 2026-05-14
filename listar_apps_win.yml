@@ -1,10 +1,11 @@
 ---
-- name: Auditoria de Apps - Envio Direto por Nome de Host
+- name: Auditoria de Apps - Zabbix 7.2
   hosts: all
-  gather_facts: yes # Isso faz o Ansible perguntar o nome real para o Windows
+  gather_facts: yes
 
   vars:
-    zabbix_url: "http://192.168.1.14:8080/api_jsonrpc.php"
+    # Use a porta 8080 que voce testou e funcionou no CURL
+    zabbix_api_url: "http://192.168.1.14:8080/api_jsonrpc.php"
     zabbix_token: "3626f0dcb324a8ab4c948ea90dccb7c6a934a03e01ea3cc386eae6eca61e3dd8"
 
   tasks:
@@ -15,23 +16,23 @@
       register: winget_out
       ignore_errors: yes
 
-    - name: 2. DEBUG - Verificando o nome que o Windows reportou
-      ansible.builtin.debug:
-        msg: "O IP {{ inventory_hostname }} diz que seu nome de rede é: {{ ansible_hostname }}"
-
-    - name: 3. Enviar para o Zabbix usando o nome do Windows
+    - name: 2. Enviar para o Zabbix 7.2 via API
       delegate_to: localhost
       ansible.builtin.uri:
-        url: "{{ zabbix_url }}"
+        url: "{{ zabbix_api_url }}"
         method: POST
         body_format: json
         body:
           jsonrpc: "2.0"
           method: "history.push"
           params:
-            - host: "{{ ansible_hostname }}" # Usa o nome que o Windows acabou de falar
+            - host: "{{ ansible_hostname }}" # Nome exato que aparece no debug do AWX
               key: "apps.updates.list"
               value: "{{ winget_out.stdout | default('Sem dados') }}"
           auth: "{{ zabbix_token }}"
           id: 1
-      ignore_errors: yes
+      register: api_res
+
+    - name: 3. Verificar se o Zabbix aceitou o dado
+      ansible.builtin.debug:
+        msg: "Resposta do Zabbix: {{ api_res.json.result }}"
