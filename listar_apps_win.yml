@@ -1,5 +1,5 @@
 ---
-- name: Auditoria de Apps - Salvando no MariaDB
+- name: Auditoria de Apps - Salvando no MariaDB (Versão AWX)
   hosts: all
   gather_facts: yes
 
@@ -7,14 +7,50 @@
     - name: 1. Coletar atualizações no Windows
       ansible.windows.win_shell: |
         $list = winget upgrade --include-unknown | Select-String "available"
-        if ($list) { ($list.Line) -join " | " } else { "Tudo atualizado" }
+        if ($list) { 
+            ($list.Line) -join " | " 
+        } else { 
+            "Tudo atualizado" 
+        }
       register: winget_out
       ignore_errors: yes
 
-    - name: 2. Gravar no MariaDB (No Servidor AWX)
+    - name: 2. Gravar no MariaDB via Python (Conexão Direta)
       delegate_to: localhost
       ansible.builtin.shell: |
-        mysql -u ansible_user -p'SenhaAnsible123' inventario_ti -e \
-        "INSERT INTO updates (hostname, ip, apps, visto_em) \
-        VALUES ('{{ ansible_hostname }}', '{{ inventory_hostname }}', '{{ winget_out.stdout | trim }}', NOW()) \
-        ON DUPLICATE KEY UPDATE apps='{{ winget_out.stdout | trim }}', visto_em=NOW();"
+        python3 - <<EOF
+        import pymysql
+        import sys
+
+        # Configurações do Banco
+        db_host = "192.168.1.14" # IP do servidor onde você instalou o MariaDB
+        db_user = "ansible_user"
+        db_pass = "SenhaAnsible123"
+        db_name = "inventario_ti"
+
+        try:
+            conn = pymysql.connect(host=db_host, user=db_user, password=db_pass, database=db_name)
+            cursor = conn.cursor()
+            
+            sql = """INSERT INTO updates (hostname, ip, apps, visto_em) 
+                     VALUES (%s, %s, %s, NOW()) 
+                     ON DUPLICATE KEY UPDATE apps=%s, visto_em=NOW()"""
+            
+            # Dados que vieram do Windows
+            hostname = "{{ ansible_hostname }}"
+            ip = "{{ inventory_hostname }}"
+            apps = """{{ winget_out.stdout | trim | default('Sem dados') }}"""
+            
+            cursor.execute(sql, (hostname, ip, apps, apps))
+            conn.commit()
+            conn.close()
+            print("Sucesso: Dados gravados")
+        except Exception as e:
+            print(f"Erro ao gravar no banco: {e}")
+            sys.exit(1)
+        EOF
+      register: db_res
+
+    - name: 3. Verificar se gravou com sucesso
+      ansible.builtin.debug:
+        msg: "{{ db_res.stdout }}"
