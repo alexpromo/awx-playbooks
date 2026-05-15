@@ -1,5 +1,5 @@
 ---
-- name: Auditoria de Apps - Salvando no MariaDB (Versão AWX)
+- name: Auditoria de Apps - Salvando no MariaDB (AWX Fix)
   hosts: all
   gather_facts: yes
 
@@ -15,7 +15,13 @@
       register: winget_out
       ignore_errors: yes
 
-    - name: 2. Gravar no MariaDB via Python (Conexão Direta)
+    # ESSA É A TAREFA NOVA QUE RESOLVE O ERRO:
+    - name: 2. Preparar o AWX (Instalar biblioteca pymysql no contêiner)
+      delegate_to: localhost
+      ansible.builtin.shell: python3 -m pip install pymysql
+      ignore_errors: yes
+
+    - name: 3. Gravar no MariaDB via Python (Conexão Direta)
       delegate_to: localhost
       ansible.builtin.shell: |
         python3 - <<EOF
@@ -23,7 +29,7 @@
         import sys
 
         # Configurações do Banco
-        db_host = "192.168.1.14" # IP do servidor onde você instalou o MariaDB
+        db_host = "192.168.1.14" # IP do MariaDB
         db_user = "ansible_user"
         db_pass = "SenhaAnsible123"
         db_name = "inventario_ti"
@@ -36,7 +42,6 @@
                      VALUES (%s, %s, %s, NOW()) 
                      ON DUPLICATE KEY UPDATE apps=%s, visto_em=NOW()"""
             
-            # Dados que vieram do Windows
             hostname = "{{ ansible_hostname }}"
             ip = "{{ inventory_hostname }}"
             apps = """{{ winget_out.stdout | trim | default('Sem dados') }}"""
@@ -44,13 +49,13 @@
             cursor.execute(sql, (hostname, ip, apps, apps))
             conn.commit()
             conn.close()
-            print("Sucesso: Dados gravados")
+            print("Sucesso: Dados gravados no MariaDB")
         except Exception as e:
             print(f"Erro ao gravar no banco: {e}")
             sys.exit(1)
         EOF
       register: db_res
 
-    - name: 3. Verificar se gravou com sucesso
+    - name: 4. Verificar resultado final
       ansible.builtin.debug:
         msg: "{{ db_res.stdout }}"
