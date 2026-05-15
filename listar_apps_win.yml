@@ -1,5 +1,5 @@
 ---
-- name: Auditoria de Apps - Salvando em Banco Local (SQLite)
+- name: Auditoria de Apps - Salvando no MariaDB
   hosts: all
   gather_facts: yes
 
@@ -7,43 +7,14 @@
     - name: 1. Coletar atualizações no Windows
       ansible.windows.win_shell: |
         $list = winget upgrade --include-unknown | Select-String "available"
-        if ($list) { 
-            ($list.Line) -join " | " 
-        } else { 
-            "Tudo atualizado" 
-        }
+        if ($list) { ($list.Line) -join " | " } else { "Tudo atualizado" }
       register: winget_out
       ignore_errors: yes
 
-    - name: 2. Gravar no Banco de Dados SQLite (No Linux do AWX)
+    - name: 2. Gravar no MariaDB (No Servidor AWX)
       delegate_to: localhost
       ansible.builtin.shell: |
-        python3 - <<EOF
-        import sqlite3
-        from datetime import datetime
-
-        # Conecta no banco (cria se não existir)
-        # O arquivo ficará em /tmp/ para facilitar o acesso
-        conn = sqlite3.connect('/tmp/inventario_apps.db')
-        cursor = conn.cursor()
-
-        # Cria a tabela se não existir
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS updates (
-                hostname TEXT PRIMARY KEY,
-                ip TEXT,
-                apps TEXT,
-                ultima_atualizacao TIMESTAMP
-            )
-        ''')
-
-        # Insere ou Atualiza os dados da máquina
-        dados = ("{{ ansible_hostname }}", "{{ inventory_hostname }}", """{{ winget_out.stdout | trim }}""", datetime.now())
-        cursor.execute('''
-            INSERT OR REPLACE INTO updates (hostname, ip, apps, ultima_atualizacao)
-            VALUES (?, ?, ?, ?)
-        ''', dados)
-
-        conn.commit()
-        conn.close()
-        EOF
+        mysql -u ansible_user -p'SenhaAnsible123' inventario_ti -e \
+        "INSERT INTO updates (hostname, ip, apps, visto_em) \
+        VALUES ('{{ ansible_hostname }}', '{{ inventory_hostname }}', '{{ winget_out.stdout | trim }}', NOW()) \
+        ON DUPLICATE KEY UPDATE apps='{{ winget_out.stdout | trim }}', visto_em=NOW();"
