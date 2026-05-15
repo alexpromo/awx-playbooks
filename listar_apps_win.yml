@@ -1,5 +1,5 @@
 ---
-- name: Auditoria de Apps - Salvando no MariaDB (AWX Fix)
+- name: Auditoria de Apps - Arquivo Universal (Garantido)
   hosts: all
   gather_facts: yes
 
@@ -15,47 +15,18 @@
       register: winget_out
       ignore_errors: yes
 
-    # ESSA É A TAREFA NOVA QUE RESOLVE O ERRO:
-    - name: 2. Preparar o AWX (Instalar biblioteca pymysql no contêiner)
+    - name: 2. Salvar como Arquivo JSON (Sem precisar de banco de dados)
       delegate_to: localhost
-      ansible.builtin.shell: python3 -m pip install pymysql
-      ignore_errors: yes
-
-    - name: 3. Gravar no MariaDB via Python (Conexão Direta)
-      delegate_to: localhost
+      run_once: yes
       ansible.builtin.shell: |
-        python3 - <<EOF
-        import pymysql
-        import sys
-
-        # Configurações do Banco
-        db_host = "192.168.1.14" # IP do MariaDB
-        db_user = "ansible_user"
-        db_pass = "SenhaAnsible123"
-        db_name = "inventario_ti"
-
-        try:
-            conn = pymysql.connect(host=db_host, user=db_user, password=db_pass, database=db_name)
-            cursor = conn.cursor()
-            
-            sql = """INSERT INTO updates (hostname, ip, apps, visto_em) 
-                     VALUES (%s, %s, %s, NOW()) 
-                     ON DUPLICATE KEY UPDATE apps=%s, visto_em=NOW()"""
-            
-            hostname = "{{ ansible_hostname }}"
-            ip = "{{ inventory_hostname }}"
-            apps = """{{ winget_out.stdout | trim | default('Sem dados') }}"""
-            
-            cursor.execute(sql, (hostname, ip, apps, apps))
-            conn.commit()
-            conn.close()
-            print("Sucesso: Dados gravados no MariaDB")
-        except Exception as e:
-            print(f"Erro ao gravar no banco: {e}")
-            sys.exit(1)
+        # Criamos uma pasta no /tmp (que o AWX sempre tem acesso)
+        mkdir -p /tmp/inventario
+        
+        # Gravamos o resultado do PC diretamente
+        cat << 'EOF' > /tmp/inventario/{{ ansible_hostname }}.json
+        {
+          "hostname": "{{ ansible_hostname }}",
+          "ip": "{{ inventory_hostname }}",
+          "apps": "{{ winget_out.stdout | trim | default('Sem dados') }}"
+        }
         EOF
-      register: db_res
-
-    - name: 4. Verificar resultado final
-      ansible.builtin.debug:
-        msg: "{{ db_res.stdout }}"
