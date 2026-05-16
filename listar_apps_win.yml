@@ -1,5 +1,5 @@
 ---
-- name: Auditoria Completa - Atualizações e Apps Instalados
+- name: Auditoria Completa - Apps, Hardware e Segurança
   hosts: all
   gather_facts: yes
 
@@ -8,25 +8,73 @@
     zabbix_token: "6713921716abfd9f792b28b2559bfa89c42bdb6dcd6b44782eef97988c5c9c81"
 
   tasks:
-    - name: 1. Coletar atualizações (Winget)
+    # --- 1. BLOCO DE SOFTWARES ---
+    - name: Coletar atualizações (Winget)
       ansible.windows.win_shell: |
         $list = winget upgrade --include-unknown | Select-String "available"
         if ($list) { ($list.Line) -join " | " } else { "Tudo atualizado" }
       register: winget_out
       ignore_errors: yes
 
-    - name: 2. Coletar TODOS os programas instalados (Registro)
+    - name: Coletar programas instalados (Registro)
       ansible.windows.win_shell: |
-        $apps = Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*, HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
-                Select-Object DisplayName |
-                Where-Object { $_.DisplayName -ne $null } |
-                Sort-Object DisplayName -Unique |
-                Select-Object -ExpandProperty DisplayName
-        if ($apps) { $apps -join " | " } else { "Nenhum app encontrado" }
+        $apps = Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*, HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Select-Object DisplayName | Where-Object { $_.DisplayName -ne $null } | Sort-Object DisplayName -Unique | Select-Object -ExpandProperty DisplayName
+        if ($apps) { $apps -join " | " } else { "Nenhum app" }
       register: installed_out
       ignore_errors: yes
 
-    - name: 3. Enviar as DUAS listas para o Zabbix 7.2
+    # --- 2. BLOCO DO SUPORTE (HARDWARE E DISCO) ---
+    - name: Coletar espaco livre no C: (GB)
+      ansible.windows.win_shell: |
+        $disk = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'"
+        [math]::Round($disk.FreeSpace / 1GB, 1)
+      register: disk_c
+      ignore_errors: yes
+
+    - name: Coletar Uptime (Dias)
+      ansible.windows.win_shell: |
+        $os = Get-CimInstance Win32_OperatingSystem
+        (New-TimeSpan -Start $os.LastBootUpTime -End (Get-Date)).Days
+      register: uptime_days
+      ignore_errors: yes
+
+    # --- 3. BLOCO DE SEGURANÇA (AUDITORIA DE USO) ---
+    - name: Verificar Títulos de Janelas Abertas (Flagrantes)
+      ansible.windows.win_shell: |
+        # Pega todas as janelas abertas no momento
+        $windows = Get-Process | Where-Object { $_.MainWindowTitle -ne "" } | Select-Object -ExpandProperty MainWindowTitle
+        
+        # Palavras proibidas (Adicione mais se quiser)
+        $proibidos = @("YouTube", "Spotify", "Netflix", "Prime Video", "Twitch", "Música", "Filmes", "Jogos", "Bet365", "Tigrinho")
+        
+        # Site permitido (Exceção)
+        $permitido = "estudos.suaempresa.com.br"
+        
+        $flagrantes = @()
+        
+        foreach ($win in $windows) {
+            # Se for o site de estudos, ignora a janela
+            if ($win -match $permitido) { continue }
+            
+            # Se a janela contiver uma palavra proibida, anota!
+            foreach ($p in $proibidos) {
+                if ($win -match "(?i)$p") {
+                    $flagrantes += "Violação Encontrada: $($win)"
+                    break
+                }
+            }
+        }
+        
+        if ($flagrantes.Count -gt 0) {
+            $flagrantes -join " | "
+        } else {
+            "Uso Normal (Sem flagrantes)"
+        }
+      register: audit_windows
+      ignore_errors: yes
+
+    # --- 4. ENVIO PARA O ZABBIX ---
+    - name: Enviar os 4 pacotes de dados para o Zabbix 7.2
       delegate_to: localhost
       ansible.builtin.uri:
         url: "{{ zabbix_api_url }}"
@@ -39,17 +87,20 @@
           jsonrpc: "2.0"
           method: "history.push"
           params:
-            # Enviando a lista 1 (Atualizações)
             - host: "{{ ansible_hostname }}" 
               key: "apps.updates.list"
               value: "{{ winget_out.stdout | trim }}"
-            # Enviando a lista 2 (Todos os Apps)
+              
             - host: "{{ ansible_hostname }}" 
               key: "apps.installed.list"
               value: "{{ installed_out.stdout | trim }}"
-          id: 1
-      register: zabbix_res
 
-    - name: 4. Resposta do Zabbix
-      ansible.builtin.debug:
-        msg: "Status do envio: {{ zabbix_res.json.result | default(zabbix_res.json.error) }}"
+            - host: "{{ ansible_hostname }}" 
+              key: "system.info.summary"
+              value: "S.O: {{ ansible_os_name }} | Fabricante: {{ ansible_system_vendor }} | Modelo: {{ ansible_product_name }} | Serial: {{ ansible_product_serial }} | Ligado há: {{ uptime_days.stdout | trim }} dias | Espaço no C: {{ disk_c.stdout | trim }} GB livres"
+
+            # NOVO: Alerta de Violação de Uso
+            - host: "{{ ansible_hostname }}" 
+              key: "security.windows.audit"
+              value: "{{ audit_windows.stdout | trim }}"
+          id: 1
