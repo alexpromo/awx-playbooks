@@ -1,12 +1,11 @@
 ---
-- name: Auditoria de Apps - Envio Zabbix API (Sucesso)
+- name: Auditoria de Apps - Envio Zabbix API 7.2 (Vitória)
   hosts: all
   gather_facts: yes
 
   vars:
-    # A URL que você testou e funcionou
     zabbix_api_url: "http://192.168.1.14:8080/api_jsonrpc.php"
-    zabbix_token: "3626f0dcb324a8ab4c948ea90dccb7c6a934a03e01ea3cc386eae6eca61e3dd8"
+    zabbix_token: "6713921716abfd9f792b28b2559bfa89c42bdb6dcd6b44782eef97988c5c9c81"
 
   tasks:
     - name: 1. Coletar atualizações no Windows (Texto Limpo)
@@ -26,6 +25,9 @@
         url: "{{ zabbix_api_url }}"
         method: POST
         body_format: json
+        headers:
+          Authorization: "Bearer {{ zabbix_token }}"
+          Content-Type: "application/json-rpc"
         body:
           jsonrpc: "2.0"
           method: "history.push"
@@ -33,7 +35,6 @@
             - host: "{{ ansible_hostname }}" 
               key: "apps.updates.list"
               value: "{{ winget_out.stdout | trim }}"
-          auth: "{{ zabbix_token }}"
           id: 1
       register: zabbix_res
 
