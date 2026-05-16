@@ -1,10 +1,15 @@
 ---
-- name: Auditoria de Apps - Arquivo Universal (Garantido)
+- name: Auditoria de Apps - Envio Zabbix API (Sucesso)
   hosts: all
   gather_facts: yes
 
+  vars:
+    # A URL que você testou e funcionou
+    zabbix_api_url: "http://192.168.1.14:8080/api_jsonrpc.php"
+    zabbix_token: "3626f0dcb324a8ab4c948ea90dccb7c6a934a03e01ea3cc386eae6eca61e3dd8"
+
   tasks:
-    - name: 1. Coletar atualizações no Windows
+    - name: 1. Coletar atualizações no Windows (Texto Limpo)
       ansible.windows.win_shell: |
         $list = winget upgrade --include-unknown | Select-String "available"
         if ($list) { 
@@ -15,18 +20,23 @@
       register: winget_out
       ignore_errors: yes
 
-    - name: 2. Salvar como Arquivo JSON (Sem precisar de banco de dados)
+    - name: 2. Enviar para a API do Zabbix 7.2
       delegate_to: localhost
-      run_once: yes
-      ansible.builtin.shell: |
-        # Criamos uma pasta no /tmp (que o AWX sempre tem acesso)
-        mkdir -p /tmp/inventario
-        
-        # Gravamos o resultado do PC diretamente
-        cat << 'EOF' > /tmp/inventario/{{ ansible_hostname }}.json
-        {
-          "hostname": "{{ ansible_hostname }}",
-          "ip": "{{ inventory_hostname }}",
-          "apps": "{{ winget_out.stdout | trim | default('Sem dados') }}"
-        }
-        EOF
+      ansible.builtin.uri:
+        url: "{{ zabbix_api_url }}"
+        method: POST
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: "history.push"
+          params:
+            - host: "{{ ansible_hostname }}" 
+              key: "apps.updates.list"
+              value: "{{ winget_out.stdout | trim }}"
+          auth: "{{ zabbix_token }}"
+          id: 1
+      register: zabbix_res
+
+    - name: 3. Resposta do Zabbix
+      ansible.builtin.debug:
+        msg: "Status do envio: {{ zabbix_res.json.result | default(zabbix_res.json.error) }}"
