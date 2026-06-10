@@ -1,15 +1,12 @@
----
 plugin: community.zabbix.zabbix_inventory
-# URL do seu Zabbix (ex: http://192.168.1.50/zabbix)
 server_url: http://192.168.1.14
 zabbix_user: "Admin"
 zabbix_password: "zabbix"
+validate_certs: false
 
-# Filtros para pegar apenas máquinas ativas
 filters:
   status: [0]
 
-# Mapeamento para o Ansible saber que deve usar WinRM (Windows)
 compose:
   ansible_connection: "'winrm'"
   ansible_winrm_server_cert_validation: "'ignore'"
