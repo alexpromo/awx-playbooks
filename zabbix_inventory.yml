@@ -1,13 +1,15 @@
+---
 plugin: community.zabbix.zabbix_inventory
-server_url: http://192.168.1.14/api_jsonrpc.php
-# SUBSTITUA AS LINHAS DE USUÁRIO E SENHA POR ESSA:
+server_url: http://192.168.1.14
 zabbix_api_token: "cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
 validate_certs: false
 
-filters:
-  status: [0]
+# O segredo que você descobriu: filtrar pelo grupo 30
+group_ids: [30]
 
+# Isso garante que o Ansible use os IPs para conectar
 compose:
+  ansible_host: host
   ansible_connection: "'winrm'"
   ansible_winrm_server_cert_validation: "'ignore'"
   ansible_winrm_transport: "'ntlm'"
