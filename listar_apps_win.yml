@@ -23,18 +23,15 @@
         method: POST
         headers:
           Content-Type: "application/json"
-          # Aqui usamos o seu Token que já sabemos que funciona!
           Authorization: "Bearer cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
         body_format: json
         body:
           jsonrpc: "2.0"
           method: "host.update"
           params:
-            # O AWX já sabe o ID da máquina graças ao inventário dinâmico!
             hostid: "{{ zbx_hostid }}"
             inventory_mode: 0
             inventory:
-              # Injeta o texto do PowerShell no campo "Software (Detalhes Completos)"
               software_full: "{{ resultado_apps.stdout }}"
           id: 1
       ignore_errors: yes
