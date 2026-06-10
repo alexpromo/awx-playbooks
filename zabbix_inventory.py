@@ -1,15 +1,15 @@
+#!/usr/bin/env python3
 import requests
 import json
 
 ZABBIX_URL = "http://192.168.1.14/api_jsonrpc.php"
 ZABBIX_TOKEN = "cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
-GROUP_ID = "30"  # <-- seu grupo
+GROUP_ID = "30"
 
 headers = {
     "Content-Type": "application/json",
     "Authorization": f"Bearer {ZABBIX_TOKEN}"
 }
-
 
 payload = {
     "jsonrpc": "2.0",
@@ -17,14 +17,12 @@ payload = {
     "params": {
         "output": ["host"],
         "selectInterfaces": ["ip"],
-        "groupids": [GROUP_ID]   # <-- AQUI É O SEGREDO
+        "groupids": [GROUP_ID]
     },
     "id": 1
 }
 
 response = requests.post(ZABBIX_URL, headers=headers, json=payload).json()
-
-print("DEBUG:", response)
 
 hosts = response.get("result", [])
 
@@ -39,4 +37,4 @@ for h in hosts:
         if i.get("ip"):
             inventory["all"]["hosts"].append(i["ip"])
 
-print(json.dumps(inventory, indent=2))
+print(json.dumps(inventory))
