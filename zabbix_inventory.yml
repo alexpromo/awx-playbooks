@@ -1,5 +1,6 @@
 plugin: community.zabbix.zabbix_inventory
 server_url: http://192.168.1.14
+# SUBSTITUA AS LINHAS DE USUÁRIO E SENHA POR ESSA:
 zabbix_api_token: "cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
 validate_certs: false
 
