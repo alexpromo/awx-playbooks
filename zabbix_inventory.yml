@@ -1,7 +1,7 @@
 ---
 plugin: community.zabbix.zabbix_inventory
 # URL do seu Zabbix (ex: http://192.168.1.50/zabbix)
-server_url: http://192.168.1.14/zabbix
+server_url: http://192.168.1.14
 zabbix_user: "Admin"
 zabbix_password: "zabbix"
 
