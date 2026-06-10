@@ -1,2 +1,2 @@
-plugin: script
+plugin: community.general.script
 script: zabbix_inventory.py
