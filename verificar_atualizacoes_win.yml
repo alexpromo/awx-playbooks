@@ -1,0 +1,35 @@
+---
+- name: Verificar Atualizações de Aplicativos
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Consultar atualizações disponíveis via Winget
+      ansible.windows.win_shell: |
+        # Aceita os termos do winget e busca atualizações
+        winget upgrade --include-unknown | Out-String
+      register: winget_result
+
+    - name: Exibir atualizações no log
+      debug:
+        msg: "{{ winget_result.stdout_lines }}"
+
+    - name: Enviar lista de atualizações para o campo Notas do Zabbix
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "http://192.168.1.14/api_jsonrpc.php"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          Authorization: "Bearer cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: "host.update"
+          params:
+            hostid: "{{ zbx_hostid }}"
+            inventory_mode: 0
+            inventory:
+              # Vamos salvar no campo 'Notes' do inventário do Zabbix
+              notes: "ATUALIZAÇÕES PENDENTES:\n{{ winget_result.stdout }}"
+          id: 1
+      ignore_errors: yes
