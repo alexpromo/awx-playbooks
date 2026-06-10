@@ -16,15 +16,25 @@
       debug:
         msg: "{{ resultado_apps.stdout_lines }}"
 
-    - name: Enviar lista para o Inventario do Zabbix
+    - name: Atualizar Inventario no Zabbix via API Direta
       delegate_to: localhost
-      community.zabbix.zabbix_host:
-        server_url: "http://192.168.1.14"
-        login_user: "Admin"               # COLOQUE SEU USUARIO AQUI (Case Sensitive)
-        login_password: "sua_senha_aqui"  # COLOQUE SUA SENHA AQUI
-        host_name: "{{ inventory_hostname }}"
-        inventory_mode: manual
-        inventory:
-          # O Ansible vai colar a tabela do PowerShell dentro deste campo no Zabbix
-          software_full: "{{ resultado_apps.stdout }}"
+      ansible.builtin.uri:
+        url: "http://192.168.1.14/api_jsonrpc.php"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          # Aqui usamos o seu Token que já sabemos que funciona!
+          Authorization: "Bearer cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: "host.update"
+          params:
+            # O AWX já sabe o ID da máquina graças ao inventário dinâmico!
+            hostid: "{{ zbx_hostid }}"
+            inventory_mode: 0
+            inventory:
+              # Injeta o texto do PowerShell no campo "Software (Detalhes Completos)"
+              software_full: "{{ resultado_apps.stdout }}"
+          id: 1
       ignore_errors: yes
