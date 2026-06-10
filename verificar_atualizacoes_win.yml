@@ -1,19 +1,22 @@
 ---
-- name: Verificar Atualizações de Aplicativos
+- name: Verificar Atualizações (Apenas Listar)
   hosts: all
   gather_facts: no
   tasks:
-    - name: Consultar atualizações disponíveis via Winget
+    - name: Consultar lista de atualizações pendentes
       ansible.windows.win_shell: |
-        # Aceita os termos do winget e busca atualizações
-        winget upgrade --include-unknown | Out-String
+        # --accept-source-agreements: Aceita os termos da Microsoft silenciosamente
+        # O comando 'winget upgrade' sozinho APENAS EXIBE a tabela, NÃO ATUALIZA.
+        winget upgrade --accept-source-agreements --accept-package-agreements | Out-String
       register: winget_result
+      # Ignoramos erro se não houver atualizações (o winget retorna erro 1 se estiver tudo ok)
+      failed_when: false 
 
-    - name: Exibir atualizações no log
+    - name: Exibir lista no log do AWX
       debug:
         msg: "{{ winget_result.stdout_lines }}"
 
-    - name: Enviar lista de atualizações para o campo Notas do Zabbix
+    - name: Enviar lista para o campo Notas do Zabbix
       delegate_to: localhost
       ansible.builtin.uri:
         url: "http://192.168.1.14/api_jsonrpc.php"
@@ -29,7 +32,7 @@
             hostid: "{{ zbx_hostid }}"
             inventory_mode: 0
             inventory:
-              # Vamos salvar no campo 'Notes' do inventário do Zabbix
-              notes: "ATUALIZAÇÕES PENDENTES:\n{{ winget_result.stdout }}"
+              # Salva a tabela de "O que precisa atualizar" nas Notas
+              notes: "LISTA DE ATUALIZAÇÕES DISPONÍVEIS:\n{{ winget_result.stdout }}"
           id: 1
       ignore_errors: yes
