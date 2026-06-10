@@ -1,2 +1,3 @@
-plugin: community.general.script
-script: zabbix_inventory.py
+---
+plugin: ansible.builtin.script
+script: ./zabbix_inventory.py
