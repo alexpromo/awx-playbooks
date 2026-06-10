@@ -16,8 +16,15 @@
       debug:
         msg: "{{ resultado_apps.stdout_lines }}"
 
-    - name: Salvar resultado em arquivo local (opcional)
+    - name: Enviar lista para o Inventario do Zabbix
       delegate_to: localhost
-      ansible.builtin.copy:
-        content: "{{ resultado_apps.stdout }}"
-        dest: "/tmp/apps_{{ inventory_hostname }}.txt"
+      community.zabbix.zabbix_host:
+        server_url: "http://192.168.1.14"
+        login_user: "Admin"               # COLOQUE SEU USUARIO AQUI (Case Sensitive)
+        login_password: "sua_senha_aqui"  # COLOQUE SUA SENHA AQUI
+        host_name: "{{ inventory_hostname }}"
+        inventory_mode: manual
+        inventory:
+          # O Ansible vai colar a tabela do PowerShell dentro deste campo no Zabbix
+          software_full: "{{ resultado_apps.stdout }}"
+      ignore_errors: yes
