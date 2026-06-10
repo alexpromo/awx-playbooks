@@ -1,0 +1,2 @@
+plugin: script
+script: zabbix_inventory.py
