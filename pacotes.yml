@@ -1,0 +1,12 @@
+- name: Coletar pacotes instalados
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Coletar lista de pacotes
+      package_facts:
+        manager: auto
+
+    - name: Mostrar pacotes
+      debug:
+        var: ansible_facts.packages
