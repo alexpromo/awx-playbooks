@@ -3,13 +3,17 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Consultar lista de atualizações pendentes
+    - name: Resetar fontes e consultar atualizações pendentes
       ansible.windows.win_shell: |
-        # --accept-source-agreements: Aceita os termos da Microsoft silenciosamente
-        # O comando 'winget upgrade' sozinho APENAS EXIBE a tabela, NÃO ATUALIZA.
-        winget upgrade --accept-source-agreements --accept-package-agreements | Out-String
+        # 1. Força o reset das fontes do Winget (limpa erros de banco de dados)
+        winget source reset --force
+        
+        # 2. Força a atualização das fontes para garantir que ele ache os apps novos
+        winget source update
+        
+        # 3. Lista as atualizações aceitando todos os termos
+        winget upgrade --accept-package-agreements --accept-source-agreements | Out-String
       register: winget_result
-      # Ignoramos erro se não houver atualizações (o winget retorna erro 1 se estiver tudo ok)
       failed_when: false 
 
     - name: Exibir lista no log do AWX
@@ -32,7 +36,6 @@
             hostid: "{{ zbx_hostid }}"
             inventory_mode: 0
             inventory:
-              # Salva a tabela de "O que precisa atualizar" nas Notas
               notes: "LISTA DE ATUALIZAÇÕES DISPONÍVEIS:\n{{ winget_result.stdout }}"
           id: 1
       ignore_errors: yes
