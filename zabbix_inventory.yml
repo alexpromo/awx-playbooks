@@ -4,20 +4,16 @@ server_url: http://192.168.1.14
 auth_token: "cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
 validate_certs: false
 
-# Pede os hosts do Grupo 30 e exige que o Zabbix envie a "interface" (O IP)
 host_zapi_query:
   groupids: [30]
   selectInterfaces: ["ip"]
 
 compose:
-  # Força o Ansible a usar o IP para conectar, e não o nome
-  ansible_host: interfaces[0].ip
+  # O SEGREDO ESTAVA AQUI: O prefixo zbx_ que vimos na sua imagem!
+  ansible_host: zbx_interfaces[0].ip
   
-  # Configurações do Windows
   ansible_connection: "'winrm'"
   ansible_winrm_transport: "'ntlm'"
   ansible_winrm_server_cert_validation: "'ignore'"
-  
-  # Força a usar a porta HTTP do WinRM (padrão)
   ansible_port: 5985
   ansible_winrm_scheme: "'http'"
