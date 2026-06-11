@@ -21,22 +21,22 @@
           $linhasLimpas = $saida -split "`r`n" | Where-Object {
               $_.Trim() -ne '' -and
               $_ -notmatch '█|▒' -and 
-              $_ -notmatch 'Terms|aka.ms|região|Você concorda|fonte.*requer|0x8a15000f|msstore'
+              $_.Trim() -notmatch '^[-|/\\\\]$' -and 
+              $_ -notmatch 'Terms|aka.ms|regiao|concorda|fonte.*requer|0x8a15000f|msstore'
           }
           
-          # Remove símbolos estranhos para o Zabbix
-          $textoSanitizado = ($linhasLimpas -join "`r`n") -replace '[^\x20-\x7E\xA0-\xFF\r\n]', ''
+          $textoSanitizado = ($linhasLimpas -join "`r`n") -replace '[^\x20-\x7E\r\n]', ''
           if ([string]::IsNullOrWhiteSpace($textoSanitizado) -or $textoSanitizado -match "Nenhum pacote") {
               $textoSanitizado = "Tudo atualizado em $(Get-Date)"
           }
 
-          # Busca ID da máquina no Zabbix pelo IP local
+          # Busca ID da maquina no Zabbix pelo IP local
           $localIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback|Virtual' } | Select-Object -First 1).IPAddress
           $header = @{ "Authorization" = "Bearer $Token" }
           $bodyId = @{ jsonrpc="2.0"; method="host.get"; id=1; params=@{ output=@("hostid"); filter=@{ ip=@($localIP) } } } | ConvertTo-Json
           $resHost = Invoke-RestMethod -Uri $ZabbixUrl -Method Post -Body $bodyId -ContentType "application/json; charset=utf-8" -Headers $header
 
-          # Se achou a máquina, envia o relatório para o campo "Notas"
+          # Se achou a maquina, envia o relatorio
           if ($resHost.result.Count -gt 0) {
               $hostId = $resHost.result[0].hostid
               $bodyUpdate = @{
@@ -51,11 +51,11 @@
         name: AuditoriaSoftwareWinget
         description: 'Verifica atualizacoes todo dia 01 via C:\service'
         actions:
-          - path: powershell.exe  # CORRIGIDO: de 'execute' para 'path'
+          - path: powershell.exe
             arguments: '-ExecutionPolicy Bypass -File C:\service\VerificarAtualizacoes.ps1'
         triggers:
           - type: monthly
-            start_boundary: '2026-06-01T12:00:00'
+            start_boundary: '2026-06-01T06:00:00'
             days_of_month: 1
         username: SYSTEM
         run_level: highest
