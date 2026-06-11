@@ -3,14 +3,17 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Consultar atualizações apenas no repositório Winget
+    - name: Limpar e consultar atualizações pendentes
       ansible.windows.win_shell: |
-        # 1. Tenta atualizar a lista de fontes ignorando erros
-        winget source update --source winget
+        # 1. Reseta as fontes para o padrão de fábrica
+        winget source reset --force
         
-        # 2. Busca atualizações APENAS na fonte 'winget' para evitar erro de região da msstore
-        # Usamos '--source winget' para pular a validação da Microsoft Store
-        winget upgrade --source winget --accept-package-agreements --accept-source-agreements | Out-String
+        # 2. Atualiza especificamente a fonte 'winget' (corrigido para versões antigas)
+        winget source update winget
+        
+        # 3. Lista atualizações APENAS da fonte winget
+        # -s é o atalho para --source que funciona em mais versões
+        winget upgrade -s winget --accept-package-agreements --accept-source-agreements | Out-String
       register: winget_result
       failed_when: false 
 
@@ -34,6 +37,6 @@
             hostid: "{{ zbx_hostid }}"
             inventory_mode: 0
             inventory:
-              notes: "ATUALIZAÇÕES DISPONÍVEIS (Fonte Winget):\n{{ winget_result.stdout }}"
+              notes: "ATUALIZAÇÕES DISPONÍVEIS:\n{{ winget_result.stdout }}"
           id: 1
       ignore_errors: yes
