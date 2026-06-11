@@ -3,17 +3,11 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Limpar e consultar atualizações pendentes
+    - name: Consultar atualizações pendentes via Winget
       ansible.windows.win_shell: |
-        # 1. Reseta as fontes para o padrão de fábrica
-        winget source reset --force
-        
-        # 2. Atualiza especificamente a fonte 'winget' (corrigido para versões antigas)
-        winget source update winget
-        
-        # 3. Lista atualizações APENAS da fonte winget
-        # -s é o atalho para --source que funciona em mais versões
-        winget upgrade -s winget --accept-package-agreements --accept-source-agreements | Out-String
+        # Sem comandos de reset! Apenas a busca direta e limpa.
+        # --disable-interactivity: Oculta as barras de progresso e evita travamentos no Ansible
+        winget upgrade --accept-package-agreements --accept-source-agreements --disable-interactivity | Out-String
       register: winget_result
       failed_when: false 
 
