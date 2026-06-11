@@ -3,16 +3,20 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Executar Winget ignorando bloqueios da Microsoft Store
+    - name: Consultar atualizações compatível com todas as versões
       ansible.windows.win_shell: |
-        # 1. Remove a Microsoft Store da busca (Para de pedir Região e Contratos)
+        # 1. Remove a Microsoft Store (Resolve o erro de Região)
         winget source remove msstore 2>$null
         
-        # 2. Baixa o banco de dados oficial (Cura o erro 0x8a15000f de dados ausentes)
-        winget source update --name winget --accept-source-agreements 2>$null
+        # 2. Atualiza o banco de dados oficial (Corrigido para não dar erro em versões antigas)
+        winget source update --name winget 2>$null
         
-        # 3. Lista as atualizações pendentes de forma limpa
-        winget upgrade --accept-source-agreements --accept-package-agreements | Out-String
+        # 3. Executa a busca de atualizações
+        $resultado = winget upgrade --accept-source-agreements --accept-package-agreements
+        
+        # 4. Filtra e remove as barras de progresso do log para ficar limpo
+        $resultado_limpo = $resultado | Where-Object { $_ -notmatch '█|▒' }
+        $resultado_limpo | Out-String
       register: winget_result
       failed_when: false 
 
