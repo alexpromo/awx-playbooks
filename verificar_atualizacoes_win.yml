@@ -3,7 +3,7 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Executar Winget usando Tarefa Agendada S4U (Sem erro de variável)
+    - name: Executar Winget usando Tarefa Agendada S4U
       ansible.windows.win_shell: |
         $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
         
@@ -11,14 +11,14 @@
         $outPath = "C:\Windows\Temp\winget_out.txt"
         if (Test-Path $outPath) { Remove-Item $outPath -Force }
 
-        # Descobre qual usuário o Ansible usou para entrar na máquina (Ex: DOMINIO\Administrador)
+        # Descobre qual usuário o Ansible usou para entrar na máquina
         $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
         # Cria o comando 'echo Y' e joga no arquivo de texto
         $cmdArgs = "/c `"echo Y | winget upgrade --accept-source-agreements --accept-package-agreements > $outPath 2>&1`""
         $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $cmdArgs
         
-        # A MÁGICA ESTÁ AQUI: LogonType S4U. Roda com o perfil do usuário, em background, sem pedir senha!
+        # Tarefa silenciosa que roda como o usuário atual sem pedir senha
         $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType S4U -RunLevel Highest
         
         Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Force | Out-Null
@@ -34,4 +34,47 @@
 
         # Limpa as sujeiras do texto e monta a tabela final
         if (Test-Path $outPath) {
-            $saida =
+            $saida = Get-Content $outPath -Raw
+            $linhasLimpas = $saida -split "`r`n" | Where-Object {
+                $_.Trim() -ne '' -and
+                $_ -notmatch '█|▒' -and 
+                $_.Trim() -notmatch '^[-|/\\\\]$' -and 
+                $_ -notmatch 'Terms of Transaction|aka.ms|região geográfica|Você concorda|A fonte.*requer|0x8a15000f|msstore|Falha|Não foi encontrada'
+            }
+            
+            $textoFinal = $linhasLimpas -join "`n"
+            
+            if ([string]::IsNullOrWhiteSpace($textoFinal)) {
+                Write-Output "Nenhuma atualização encontrada ou Winget não instalado."
+            } else {
+                Write-Output $textoFinal.Trim()
+            }
+        } else {
+            Write-Output "Nenhuma atualização encontrada."
+        }
+      register: winget_result
+      failed_when: false
+
+    - name: Exibir lista no log do AWX
+      debug:
+        msg: "{{ winget_result.stdout_lines }}"
+
+    - name: Enviar lista para o campo Notas do Zabbix
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "http://192.168.1.14/api_jsonrpc.php"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          Authorization: "Bearer cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: "host.update"
+          params:
+            hostid: "{{ zbx_hostid }}"
+            inventory_mode: 0
+            inventory:
+              notes: "ATUALIZAÇÕES DISPONÍVEIS:\n{{ winget_result.stdout }}"
+          id: 1
+      ignore_errors: yes
