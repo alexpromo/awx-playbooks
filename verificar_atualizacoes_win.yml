@@ -1,13 +1,18 @@
 ---
-- name: Verificar Atualizações (Apenas Listar)
+- name: Verificar Atualizações de Aplicativos
   hosts: all
   gather_facts: no
   tasks:
-    - name: Consultar atualizações pendentes via Winget
+    - name: Executar Winget ignorando bloqueios da Microsoft Store
       ansible.windows.win_shell: |
-        # Sem comandos de reset! Apenas a busca direta e limpa.
-        # --disable-interactivity: Oculta as barras de progresso e evita travamentos no Ansible
-        winget upgrade --accept-package-agreements --accept-source-agreements --disable-interactivity | Out-String
+        # 1. Remove a Microsoft Store da busca (Para de pedir Região e Contratos)
+        winget source remove msstore 2>$null
+        
+        # 2. Baixa o banco de dados oficial (Cura o erro 0x8a15000f de dados ausentes)
+        winget source update --name winget --accept-source-agreements 2>$null
+        
+        # 3. Lista as atualizações pendentes de forma limpa
+        winget upgrade --accept-source-agreements --accept-package-agreements | Out-String
       register: winget_result
       failed_when: false 
 
@@ -31,6 +36,6 @@
             hostid: "{{ zbx_hostid }}"
             inventory_mode: 0
             inventory:
-              notes: "ATUALIZAÇÕES DISPONÍVEIS:\n{{ winget_result.stdout }}"
+              notes: "ATUALIZAÇÕES DE APPS DISPONÍVEIS:\n{{ winget_result.stdout }}"
           id: 1
       ignore_errors: yes
