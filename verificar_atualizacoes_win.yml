@@ -3,24 +3,45 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Consultar atualizações compatível com todas as versões
+    - name: Rodar Winget como SYSTEM via Tarefa Agendada para burlar o WinRM
       ansible.windows.win_shell: |
-        # 1. Remove a Microsoft Store (Resolve o erro de Região)
-        winget source remove msstore 2>$null
-        
-        # 2. Atualiza o banco de dados oficial (Corrigido para não dar erro em versões antigas)
-        winget source update --name winget 2>$null
-        
-        # 3. Executa a busca de atualizações
-        $resultado = winget upgrade --accept-source-agreements --accept-package-agreements
-        
-        # 4. Filtra e remove as barras de progresso do log para ficar limpo
-        $resultado_limpo = $resultado | Where-Object { $_ -notmatch '█|▒' }
-        $resultado_limpo | Out-String
-      register: winget_result
-      failed_when: false 
+        $taskName = "WingetAnsibleUpdateCheck"
+        $outPath = "C:\Windows\Temp\winget_out.txt"
+        if (Test-Path $outPath) { Remove-Item $outPath -Force }
 
-    - name: Exibir lista no log do AWX
+        # Cria a ação mandando o resultado para um arquivo de texto
+        $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c winget upgrade --accept-source-agreements --accept-package-agreements > $outPath"
+        
+        # Define que vai rodar como SYSTEM (O usuário mestre, que não tem limites de tela)
+        $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+        
+        # Cria e inicia a tarefa
+        Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Force | Out-Null
+        Start-ScheduledTask -TaskName $taskName
+        
+        # Aguarda o comando terminar (Máximo de 2 minutos)
+        $timeout = 120
+        while ((Get-ScheduledTask -TaskName $taskName).State -eq 'Running' -and $timeout -gt 0) {
+            Start-Sleep -Seconds 2
+            $timeout -= 2
+        }
+
+        # Deleta a tarefa para não deixar lixo no Windows
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false | Out-Null
+
+        # Lê o arquivo gerado e limpa os caracteres de carregamento
+        if (Test-Path $outPath) {
+            $resultado = Get-Content $outPath -Raw
+            # Expressões regulares para apagar as barras de progresso (█, ▒, -, \, |, /)
+            $resultado = $resultado -replace '(?m)^.*(█|▒).*$', ''
+            $resultado = $resultado -replace '(?m)^\s*[-|/\\\\]\s*$', ''
+            Write-Output $resultado.Trim()
+        } else {
+            Write-Output "Nenhuma atualização encontrada ou Winget não instalado."
+        }
+      register: winget_result
+
+    - name: Exibir lista limpa no log do AWX
       debug:
         msg: "{{ winget_result.stdout_lines }}"
 
@@ -40,6 +61,6 @@
             hostid: "{{ zbx_hostid }}"
             inventory_mode: 0
             inventory:
-              notes: "ATUALIZAÇÕES DE APPS DISPONÍVEIS:\n{{ winget_result.stdout }}"
+              notes: "ATUALIZAÇÕES DISPONÍVEIS:\n{{ winget_result.stdout }}"
           id: 1
       ignore_errors: yes
