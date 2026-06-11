@@ -15,22 +15,46 @@
           $ZUrl = "http://192.168.1.14/api_jsonrpc.php"
           $Tok = "cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
           
-          # Executa o winget e filtra apenas o que interessa
-          $raw = cmd.exe /c "echo Y | winget upgrade"
-          $limpo = $raw | Where-Object { $_ -match "winget" -and $_ -notmatch "msstore" }
-          $texto = $limpo -join "`r`n"
-          if ([string]::IsNullOrWhiteSpace($texto)) { $texto = "Tudo atualizado." }
+          # 1. Forca atualizacao das fontes para o SYSTEM nao ficar cego
+          cmd.exe /c "winget source update --name winget" | Out-Null
 
-          # Identifica a maquina pelo IP
+          # 2. Executa o winget e remove apenas as linhas que sao lixo (barras de progresso)
+          $raw = cmd.exe /c "echo Y | winget upgrade --accept-source-agreements"
+          
+          # Filtro: Mantem tudo que nao for barra de progresso ou avisos da Microsoft
+          $limpo = $raw | Where-Object { 
+              $_.Trim() -ne "" -and 
+              $_ -notmatch '█|▒|Terms of Transaction|aka.ms|regiao|concorda' 
+          }
+          
+          $texto = $limpo -join "`r`n"
+          
+          # Se o Winget disser que nao tem nada, escrevemos uma frase clara
+          if ($texto -match "Nenhum pacote instalado") { 
+              $texto = "Tudo atualizado para o usuario SYSTEM em $(Get-Date)" 
+          }
+
+          # 3. Identifica a maquina pelo IP
           $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object InterfaceAlias -notmatch "Loopback" | Select-Object -First 1).IPAddress
           $auth = @{ "Authorization" = "Bearer $Tok" }
 
           $bId = @{ jsonrpc="2.0"; method="host.get"; id=1; params=@{ output=@("hostid"); filter=@{ ip=@($ip) } } } | ConvertTo-Json
           $res = Invoke-RestMethod -Uri $ZUrl -Method Post -Body $bId -ContentType "application/json" -Headers $auth
 
+          # 4. Atualiza o Zabbix
           if ($res.result.Count -gt 0) {
               $id = $res.result[0].hostid
-              $bUp = @{ jsonrpc="2.0"; method="host.update"; id=2; params=@{ hostid=$id; inventory_mode=0; inventory=@{ notes="RELATORIO:`r`n$texto" } } } | ConvertTo-Json -Depth 5 -Compress
+              $agora = Get-Date -Format "dd/MM/yyyy HH:mm"
+              $bUp = @{ 
+                  jsonrpc="2.0"; 
+                  method="host.update"; 
+                  id=2; 
+                  params=@{ 
+                      hostid=$id; 
+                      inventory_mode=0; 
+                      inventory=@{ notes="ULTIMA AUDITORIA ($agora):`r`n$texto" } 
+                  } 
+              } | ConvertTo-Json -Depth 5 -Compress
               Invoke-RestMethod -Uri $ZUrl -Method Post -Body $bUp -ContentType "application/json" -Headers $auth
           }
 
