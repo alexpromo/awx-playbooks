@@ -29,17 +29,21 @@
         # Deleta a tarefa para não deixar lixo no Windows
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false | Out-Null
 
-        # Lê o arquivo gerado e limpa os caracteres de carregamento
+        # Lê o arquivo gerado, limpa as barras de progresso e converte para texto puro
         if (Test-Path $outPath) {
-            $resultado = Get-Content $outPath -Raw
-            # Expressões regulares para apagar as barras de progresso (█, ▒, -, \, |, /)
-            $resultado = $resultado -replace '(?m)^.*(█|▒).*$', ''
-            $resultado = $resultado -replace '(?m)^\s*[-|/\\\\]\s*$', ''
-            Write-Output $resultado.Trim()
+            $linhas = Get-Content $outPath
+            # Filtra e remove o lixo visual do Winget
+            $linhasLimpas = $linhas | Where-Object { $_ -notmatch '█|▒' -and $_.Trim() -notmatch '^[-|/\\\\]$' }
+            
+            # Converte a lista em um texto único
+            $textoFinal = $linhasLimpas | Out-String
+            
+            Write-Output $textoFinal.Trim()
         } else {
             Write-Output "Nenhuma atualização encontrada ou Winget não instalado."
         }
       register: winget_result
+      failed_when: false
 
     - name: Exibir lista limpa no log do AWX
       debug:
