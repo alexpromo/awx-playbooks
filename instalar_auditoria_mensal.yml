@@ -1,5 +1,5 @@
 ---
-- name: Instalar e Executar Auditoria de Software Mensal
+- name: Instalar Auditoria de Software Mensal
   hosts: all
   gather_facts: no
   tasks:
@@ -12,55 +12,43 @@
       ansible.windows.win_copy:
         dest: 'C:\service\VerificarAtualizacoes.ps1'
         content: |
-          $OutputEncoding = [System.Text.Encoding]::UTF8
-          $ZabbixUrl = "http://192.168.1.14/api_jsonrpc.php"
-          $Token = "cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
+          $ZUrl = "http://192.168.1.14/api_jsonrpc.php"
+          $Tok = "cfbf448e275112250c7fe06ef9e84505fe5ea46b880cc3e46c7671267d5cb432"
           
-          # Executa Winget e limpa o texto
-          $saida = cmd.exe /c "echo Y | winget upgrade 2>&1"
-          $linhasLimpas = $saida -split "`r`n" | Where-Object {
-              $_.Trim() -ne '' -and
-              $_ -notmatch '█|▒' -and 
-              $_.Trim() -notmatch '^[-|/\\\\]$' -and 
-              $_ -notmatch 'Terms|aka.ms|regiao|concorda|fonte.*requer|0x8a15000f|msstore'
-          }
-          
-          $textoSanitizado = ($linhasLimpas -join "`r`n") -replace '[^\x20-\x7E\r\n]', ''
-          if ([string]::IsNullOrWhiteSpace($textoSanitizado) -or $textoSanitizado -match "Nenhum pacote") {
-              $textoSanitizado = "Tudo atualizado em $(Get-Date)"
-          }
+          # Executa o winget e filtra apenas o que interessa
+          $raw = cmd.exe /c "echo Y | winget upgrade"
+          $limpo = $raw | Where-Object { $_ -match "winget" -and $_ -notmatch "msstore" }
+          $texto = $limpo -join "`r`n"
+          if ([string]::IsNullOrWhiteSpace($texto)) { $texto = "Tudo atualizado." }
 
-          # Busca ID da maquina no Zabbix pelo IP local
-          $localIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback|Virtual' } | Select-Object -First 1).IPAddress
-          $header = @{ "Authorization" = "Bearer $Token" }
-          $bodyId = @{ jsonrpc="2.0"; method="host.get"; id=1; params=@{ output=@("hostid"); filter=@{ ip=@($localIP) } } } | ConvertTo-Json
-          $resHost = Invoke-RestMethod -Uri $ZabbixUrl -Method Post -Body $bodyId -ContentType "application/json; charset=utf-8" -Headers $header
+          # Identifica a maquina pelo IP
+          $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object InterfaceAlias -notmatch "Loopback" | Select-Object -First 1).IPAddress
+          $auth = @{ "Authorization" = "Bearer $Tok" }
 
-          # Se achou a maquina, envia o relatorio
-          if ($resHost.result.Count -gt 0) {
-              $hostId = $resHost.result[0].hostid
-              $bodyUpdate = @{
-                  jsonrpc="2.0"; method="host.update"; id=2;
-                  params=@{ hostid=$hostId; inventory_mode=0; inventory=@{ notes="AUDITORIA MENSAL (`n$(Get-Date)):`r`n$textoSanitizado" } }
-              } | ConvertTo-Json -Depth 10 -Compress
-              Invoke-RestMethod -Uri $ZabbixUrl -Method Post -Body $bodyUpdate -ContentType "application/json; charset=utf-8" -Headers $header
+          $bId = @{ jsonrpc="2.0"; method="host.get"; id=1; params=@{ output=@("hostid"); filter=@{ ip=@($ip) } } } | ConvertTo-Json
+          $res = Invoke-RestMethod -Uri $ZUrl -Method Post -Body $bId -ContentType "application/json" -Headers $auth
+
+          if ($res.result.Count -gt 0) {
+              $id = $res.result[0].hostid
+              $bUp = @{ jsonrpc="2.0"; method="host.update"; id=2; params=@{ hostid=$id; inventory_mode=0; inventory=@{ notes="RELATORIO:`r`n$texto" } } } | ConvertTo-Json -Depth 5 -Compress
+              Invoke-RestMethod -Uri $ZUrl -Method Post -Body $bUp -ContentType "application/json" -Headers $auth
           }
 
-    - name: 3. Agendar para rodar todo dia 01 do mes as 12:00
+    - name: 3. Criar a Tarefa Agendada Mensal (Dia 01)
       community.windows.win_scheduled_task:
         name: AuditoriaSoftwareWinget
-        description: 'Verifica atualizacoes todo dia 01 via C:\service'
+        description: 'Auditoria via C:\service'
         actions:
           - path: powershell.exe
             arguments: '-ExecutionPolicy Bypass -File C:\service\VerificarAtualizacoes.ps1'
         triggers:
           - type: monthly
-            start_boundary: '2026-06-01T06:00:00'
+            start_boundary: '2026-06-01T12:00:00'
             days_of_month: 1
         username: SYSTEM
         run_level: highest
         state: present
         enabled: yes
 
-    - name: 4. Executar agora pela primeira vez
-      ansible.windows.win_shell: 'powershell.exe -ExecutionPolicy Bypass -File C:\service\VerificarAtualizacoes.ps1'
+    - name: 4. Mandar o Windows executar a tarefa AGORA
+      ansible.windows.win_shell: 'Start-ScheduledTask -TaskName "AuditoriaSoftwareWinget"'
