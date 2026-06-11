@@ -3,49 +3,31 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Rodar Winget como SYSTEM via Tarefa Agendada para burlar o WinRM
+    - name: Executar Winget limpo via PowerShell
       ansible.windows.win_shell: |
-        $taskName = "WingetAnsibleUpdateCheck"
-        $outPath = "C:\Windows\Temp\winget_out.txt"
-        if (Test-Path $outPath) { Remove-Item $outPath -Force }
-
-        # Cria a ação mandando o resultado para um arquivo de texto
-        $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c winget upgrade --accept-source-agreements --accept-package-agreements > $outPath"
+        # Arruma os acentos (UTF-8) para o padrão Brasileiro
+        $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
         
-        # Define que vai rodar como SYSTEM (O usuário mestre, que não tem limites de tela)
-        $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+        $saida = cmd.exe /c "echo Y | winget upgrade 2>&1"
+        $resultadoFinal = @()
         
-        # Cria e inicia a tarefa
-        Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Force | Out-Null
-        Start-ScheduledTask -TaskName $taskName
-        
-        # Aguarda o comando terminar (Máximo de 2 minutos)
-        $timeout = 120
-        while ((Get-ScheduledTask -TaskName $taskName).State -eq 'Running' -and $timeout -gt 0) {
-            Start-Sleep -Seconds 2
-            $timeout -= 2
+        foreach ($linha in ($saida -split "`r`n")) {
+            $linha = $linha.Trim()
+            if ([string]::IsNullOrWhiteSpace($linha)) { continue }
+            if ($linha -match '█|▒' -or $linha -match '^[-|/\\]$') { continue }
+            if ($linha -match 'Terms of Transaction|aka.ms|região geográfica|Você concorda|A fonte.*requer|0x8a15000f|msstore') { continue }
+            $resultadoFinal += $linha
         }
-
-        # Deleta a tarefa para não deixar lixo no Windows
-        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false | Out-Null
-
-        # Lê o arquivo gerado, limpa as barras de progresso e converte para texto puro
-        if (Test-Path $outPath) {
-            $linhas = Get-Content $outPath
-            # Filtra e remove o lixo visual do Winget
-            $linhasLimpas = $linhas | Where-Object { $_ -notmatch '█|▒' -and $_.Trim() -notmatch '^[-|/\\\\]$' }
-            
-            # Converte a lista em um texto único
-            $textoFinal = $linhasLimpas | Out-String
-            
-            Write-Output $textoFinal.Trim()
+        
+        if ($resultadoFinal.Count -le 3) {
+            Write-Output "Nenhum aplicativo precisa de atualização no momento."
         } else {
-            Write-Output "Nenhuma atualização encontrada ou Winget não instalado."
+            $resultadoFinal -join "`n" | Write-Output
         }
       register: winget_result
       failed_when: false
 
-    - name: Exibir lista limpa no log do AWX
+    - name: Exibir lista no log do AWX
       debug:
         msg: "{{ winget_result.stdout_lines }}"
 
