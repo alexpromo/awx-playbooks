@@ -3,19 +3,21 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Executar Winget limpo via PowerShell
+    - name: Executar Winget forçando o carregamento do Perfil de Usuário
       ansible.windows.win_shell: |
-        # Arruma os acentos (UTF-8) para o padrão Brasileiro
         $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
         
-        $saida = cmd.exe /c "echo Y | winget upgrade 2>&1"
+        # Executa o comando nativo aceitando os contratos
+        $saida = winget upgrade --accept-source-agreements --accept-package-agreements 2>&1
+        
         $resultadoFinal = @()
         
+        # Filtra e limpa todo o lixo de caracteres e erros de loja
         foreach ($linha in ($saida -split "`r`n")) {
             $linha = $linha.Trim()
             if ([string]::IsNullOrWhiteSpace($linha)) { continue }
             if ($linha -match '█|▒' -or $linha -match '^[-|/\\]$') { continue }
-            if ($linha -match 'Terms of Transaction|aka.ms|região geográfica|Você concorda|A fonte.*requer|0x8a15000f|msstore') { continue }
+            if ($linha -match 'Terms of Transaction|aka.ms|região geográfica|Você concorda|A fonte.*requer|0x8a15000f|msstore|Falha') { continue }
             $resultadoFinal += $linha
         }
         
@@ -26,8 +28,13 @@
         }
       register: winget_result
       failed_when: false
+      
+      # ESSAS 3 LINHAS SÃO A MÁGICA QUE RESOLVE O PROBLEMA DO WINGET NO ANSIBLE
+      become: yes
+      become_method: runas
+      become_user: "{{ ansible_user }}"
 
-    - name: Exibir lista no log do AWX
+    - name: Exibir lista limpa no log do AWX
       debug:
         msg: "{{ winget_result.stdout_lines }}"
 
