@@ -3,28 +3,23 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Executar Winget usando Tarefa Agendada S4U
+    - name: Consultar Winget via Tarefa Agendada
       ansible.windows.win_shell: |
         $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        
-        $taskName = "WingetAnsibleUpdateCheck"
+        $taskName = "WingetCheck"
         $outPath = "C:\Windows\Temp\winget_out.txt"
+        
         if (Test-Path $outPath) { Remove-Item $outPath -Force }
 
-        # Descobre qual usuário o Ansible usou para entrar na máquina
-        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-
-        # Cria o comando 'echo Y' e joga no arquivo de texto
-        $cmdArgs = "/c `"echo Y | winget upgrade --accept-source-agreements --accept-package-agreements > $outPath 2>&1`""
-        $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $cmdArgs
-        
-        # Tarefa silenciosa que roda como o usuário atual sem pedir senha
-        $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType S4U -RunLevel Highest
+        # Comando simples sem aspas complicadas
+        $cmd = "cmd.exe /c 'echo Y | winget upgrade --accept-source-agreements --accept-package-agreements > $outPath 2>&1'"
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-Command $cmd"
+        $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
         
         Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Force | Out-Null
-        Start-ScheduledTask -TaskName $taskName
+        Start-ScheduledTask -TaskName $taskName | Out-Null
         
-        $timeout = 120
+        $timeout = 60
         while ((Get-ScheduledTask -TaskName $taskName).State -eq 'Running' -and $timeout -gt 0) {
             Start-Sleep -Seconds 2
             $timeout -= 2
@@ -32,34 +27,23 @@
 
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false | Out-Null
 
-        # Limpa as sujeiras do texto e monta a tabela final
         if (Test-Path $outPath) {
-            $saida = Get-Content $outPath -Raw
-            $linhasLimpas = $saida -split "`r`n" | Where-Object {
-                $_.Trim() -ne '' -and
-                $_ -notmatch '█|▒' -and 
-                $_.Trim() -notmatch '^[-|/\\\\]$' -and 
-                $_ -notmatch 'Terms of Transaction|aka.ms|região geográfica|Você concorda|A fonte.*requer|0x8a15000f|msstore|Falha|Não foi encontrada'
-            }
-            
-            $textoFinal = $linhasLimpas -join "`n"
-            
-            if ([string]::IsNullOrWhiteSpace($textoFinal)) {
-                Write-Output "Nenhuma atualização encontrada ou Winget não instalado."
-            } else {
-                Write-Output $textoFinal.Trim()
-            }
+            $txt = Get-Content $outPath -Raw
+            # Limpa o lixo visual (barras e progresso)
+            $txt = $txt -replace '(?m)^.*(█|▒).*$', ''
+            $txt = $txt -replace '(?m)^\s*[-|/\\\\]\s*$', ''
+            Write-Output $txt.Trim()
         } else {
-            Write-Output "Nenhuma atualização encontrada."
+            Write-Output "Nenhuma atualizacao pendente."
         }
       register: winget_result
       failed_when: false
 
-    - name: Exibir lista no log do AWX
+    - name: Exibir lista no log
       debug:
         msg: "{{ winget_result.stdout_lines }}"
 
-    - name: Enviar lista para o campo Notas do Zabbix
+    - name: Atualizar Zabbix
       delegate_to: localhost
       ansible.builtin.uri:
         url: "http://192.168.1.14/api_jsonrpc.php"
@@ -75,6 +59,6 @@
             hostid: "{{ zbx_hostid }}"
             inventory_mode: 0
             inventory:
-              notes: "ATUALIZAÇÕES DISPONÍVEIS:\n{{ winget_result.stdout }}"
+              notes: "ATUALIZACOES DISPONIVEIS:\n{{ winget_result.stdout }}"
           id: 1
       ignore_errors: yes
