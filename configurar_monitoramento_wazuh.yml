@@ -1,0 +1,51 @@
+---
+- name: Configurar Monitoramento Avancado Wazuh
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Atualizar configuracao do Wazuh (ossec.conf)
+      ansible.windows.win_copy:
+        dest: 'C:\Program Files (x86)\ossec-agent\ossec.conf'
+        content: |
+          <ossec_config>
+            <client>
+              <server>
+                <address>192.168.1.232</address>
+                <port>1514</port>
+                <protocol>tcp</protocol>
+              </server>
+              <config_profile>windows</config_profile>
+            </client>
+
+            <localfile>
+              <location>Microsoft-Windows-Sysmon/Operational</location>
+              <log_format>eventchannel</log_format>
+            </localfile>
+
+            <localfile>
+              <location>Security</location>
+              <log_format>eventchannel</log_format>
+            </localfile>
+
+            <localfile>
+              <location>System</location>
+              <log_format>eventchannel</log_format>
+            </localfile>
+
+            <localfile>
+              <location>Application</location>
+              <log_format>eventchannel</log_format>
+            </localfile>
+
+            <!-- Monitoramento de USB/Pendrive -->
+            <localfile>
+              <location>Microsoft-Windows-Partition/Diagnostic</location>
+              <log_format>eventchannel</log_format>
+            </localfile>
+
+          </ossec_config>
+
+    - name: Reiniciar servico Wazuh para aplicar as regras
+      ansible.windows.win_service:
+        name: Wazuh
+        state: restarted
