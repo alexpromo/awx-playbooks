@@ -13,7 +13,7 @@
         path: 'C:\service'
         state: directory
 
-    - name: 2. Stack Sysmon - Baixar e Extrair (Se necessário)
+    - name: 2. Stack Sysmon - Baixar Executável
       ansible.windows.win_get_url:
         url: "https://download.sysinternals.com/files/Sysmon.zip"
         dest: 'C:\service\Sysmon.zip'
@@ -24,32 +24,36 @@
         dest: 'C:\service\Sysmon'
         delete_archive: yes
 
-    - name: 4. Stack Sysmon - Baixar Configuração
+    - name: 4. Stack Sysmon - Baixar Configuração Inteligente
       ansible.windows.win_get_url:
         url: "{{ sysmon_config_url }}"
         dest: 'C:\service\Sysmon\sysmonconfig.xml'
 
-    - name: 5. Stack Sysmon - Instalar ou Atualizar
+    - name: 5. Stack Sysmon - Instalar ou Atualizar Configuração
       ansible.windows.win_shell: |
-        if (!(Get-Service "Sysmon" -ErrorAction SilentlyContinue)) {
+        $service = Get-Service "Sysmon" -ErrorAction SilentlyContinue
+        if ($null -eq $service) {
+            # Se nao existe, instala
             .\Sysmon64.exe -i sysmonconfig.xml -accepteula
         } else {
-            .\Sysmon64.exe -c sysmonconfig.xml
+            # Se ja existe, apenas atualiza a configuracao
+            .\Sysmon64.exe -c sysmonconfig.xml -accepteula
         }
       args:
         chdir: 'C:\service\Sysmon'
+      register: sysmon_install
+      failed_when: false # Evita que códigos de retorno informativos travem o playbook
 
     - name: 6. Stack Wazuh - Baixar Instalador MSI
       ansible.windows.win_get_url:
         url: "https://packages.wazuh.com/4.x/windows/wazuh-agent-4.14.5-1.msi"
         dest: 'C:\service\wazuh-agent.msi'
 
-    - name: 7. Stack Wazuh - Instalar Agente (Sintaxe Corrigida)
+    - name: 7. Stack Wazuh - Instalar Agente
       ansible.windows.win_package:
         path: 'C:\service\wazuh-agent.msi'
-        # Removido o /q manual (o Ansible ja coloca /qn automaticamente)
-        # Removido aspas duplas internas que causavam o erro 1639
-        arguments: 'WAZUH_MANAGER={{ wazuh_manager }} WAZUH_AGENT_GROUP={{ wazuh_group }} WAZUH_AGENT_NAME={{ inventory_hostname }}'
+        # Sintaxe limpa de argumentos para evitar o erro 1639
+        arguments: '/q WAZUH_MANAGER="{{ wazuh_manager }}" WAZUH_AGENT_GROUP="{{ wazuh_group }}" WAZUH_AGENT_NAME="{{ inventory_hostname }}"'
         state: present
 
     - name: 8. Garantir que o serviço Wazuh está rodando
