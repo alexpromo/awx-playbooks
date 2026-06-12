@@ -1,11 +1,10 @@
 ---
 - name: Instalar Security Stack (Wazuh + Sysmon)
   hosts: all
-  gather_facts: yes  # Precisamos dos fatos para pegar o nome da máquina
+  gather_facts: yes
   vars:
     wazuh_manager: "192.168.1.232"
     wazuh_group: "default"
-    # Configuração inteligente de Sysmon (Monitora processos, rede e arquivos)
     sysmon_config_url: "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml"
 
   tasks:
@@ -14,7 +13,7 @@
         path: 'C:\service'
         state: directory
 
-    - name: 2. Stack Sysmon - Baixar Executável
+    - name: 2. Stack Sysmon - Baixar e Extrair (Se necessário)
       ansible.windows.win_get_url:
         url: "https://download.sysinternals.com/files/Sysmon.zip"
         dest: 'C:\service\Sysmon.zip'
@@ -25,7 +24,7 @@
         dest: 'C:\service\Sysmon'
         delete_archive: yes
 
-    - name: 4. Stack Sysmon - Baixar Configuração Inteligente
+    - name: 4. Stack Sysmon - Baixar Configuração
       ansible.windows.win_get_url:
         url: "{{ sysmon_config_url }}"
         dest: 'C:\service\Sysmon\sysmonconfig.xml'
@@ -45,14 +44,12 @@
         url: "https://packages.wazuh.com/4.x/windows/wazuh-agent-4.14.5-1.msi"
         dest: 'C:\service\wazuh-agent.msi'
 
-    - name: 7. Stack Wazuh - Instalar Agente
+    - name: 7. Stack Wazuh - Instalar Agente (Sintaxe Corrigida)
       ansible.windows.win_package:
         path: 'C:\service\wazuh-agent.msi'
-        arguments: >
-          /q
-          WAZUH_MANAGER="{{ wazuh_manager }}"
-          WAZUH_AGENT_GROUP="{{ wazuh_group }}"
-          WAZUH_AGENT_NAME="{{ inventory_hostname }}"
+        # Removido o /q manual (o Ansible ja coloca /qn automaticamente)
+        # Removido aspas duplas internas que causavam o erro 1639
+        arguments: 'WAZUH_MANAGER={{ wazuh_manager }} WAZUH_AGENT_GROUP={{ wazuh_group }} WAZUH_AGENT_NAME={{ inventory_hostname }}'
         state: present
 
     - name: 8. Garantir que o serviço Wazuh está rodando
