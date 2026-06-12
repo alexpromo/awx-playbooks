@@ -1,0 +1,62 @@
+---
+- name: Instalar Security Stack (Wazuh + Sysmon)
+  hosts: all
+  gather_facts: yes  # Precisamos dos fatos para pegar o nome da máquina
+  vars:
+    wazuh_manager: "192.168.1.232"
+    wazuh_group: "default"
+    # Configuração inteligente de Sysmon (Monitora processos, rede e arquivos)
+    sysmon_config_url: "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml"
+
+  tasks:
+    - name: 1. Garantir que a pasta C:\service existe
+      ansible.windows.win_file:
+        path: 'C:\service'
+        state: directory
+
+    - name: 2. Stack Sysmon - Baixar Executável
+      ansible.windows.win_get_url:
+        url: "https://download.sysinternals.com/files/Sysmon.zip"
+        dest: 'C:\service\Sysmon.zip'
+
+    - name: 3. Stack Sysmon - Extrair Arquivos
+      community.windows.win_unzip:
+        src: 'C:\service\Sysmon.zip'
+        dest: 'C:\service\Sysmon'
+        delete_archive: yes
+
+    - name: 4. Stack Sysmon - Baixar Configuração Inteligente
+      ansible.windows.win_get_url:
+        url: "{{ sysmon_config_url }}"
+        dest: 'C:\service\Sysmon\sysmonconfig.xml'
+
+    - name: 5. Stack Sysmon - Instalar ou Atualizar
+      ansible.windows.win_shell: |
+        if (!(Get-Service "Sysmon" -ErrorAction SilentlyContinue)) {
+            .\Sysmon64.exe -i sysmonconfig.xml -accepteula
+        } else {
+            .\Sysmon64.exe -c sysmonconfig.xml
+        }
+      args:
+        chdir: 'C:\service\Sysmon'
+
+    - name: 6. Stack Wazuh - Baixar Instalador MSI
+      ansible.windows.win_get_url:
+        url: "https://packages.wazuh.com/4.x/windows/wazuh-agent-4.14.5-1.msi"
+        dest: 'C:\service\wazuh-agent.msi'
+
+    - name: 7. Stack Wazuh - Instalar Agente
+      ansible.windows.win_package:
+        path: 'C:\service\wazuh-agent.msi'
+        arguments: >
+          /q
+          WAZUH_MANAGER="{{ wazuh_manager }}"
+          WAZUH_AGENT_GROUP="{{ wazuh_group }}"
+          WAZUH_AGENT_NAME="{{ inventory_hostname }}"
+        state: present
+
+    - name: 8. Garantir que o serviço Wazuh está rodando
+      ansible.windows.win_service:
+        name: Wazuh
+        state: started
+        start_mode: auto
