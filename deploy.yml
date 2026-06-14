@@ -1,5 +1,5 @@
 - name: Deploy PowerShell Zabbix Top5
-  hosts: windows
+  hosts: all
   gather_facts: no
 
   vars:
