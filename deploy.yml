@@ -1,0 +1,30 @@
+- name: Deploy PowerShell Zabbix Top5
+  hosts: windows
+  gather_facts: no
+
+  vars:
+    script_path: "C:\\scripts\\proc_top5.ps1"
+    zabbix_conf: "C:\\Program Files\\Zabbix Agent\\zabbix_agentd.conf"
+
+  tasks:
+
+    - name: Criar pasta scripts
+      win_file:
+        path: C:\scripts
+        state: directory
+
+    - name: Copiar script PowerShell
+      win_copy:
+        src: files/proc_top5.ps1
+        dest: "{{ script_path }}"
+
+    - name: Configurar UserParameter
+      win_lineinfile:
+        path: "{{ zabbix_conf }}"
+        regexp: '^UserParameter=proc.top5'
+        line: 'UserParameter=proc.top5,powershell -NoProfile -ExecutionPolicy Bypass -File C:\scripts\proc_top5.ps1'
+
+    - name: Reiniciar Zabbix Agent
+      win_service:
+        name: "Zabbix Agent"
+        state: restarted
