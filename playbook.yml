@@ -1,46 +1,48 @@
 ---
-- name: Deploy Top CPU Script
-  hosts: windows
+- name: Deploy Top CPU Zabbix
+  hosts: all
   gather_facts: no
 
   tasks:
 
-    - name: Verificar Agent 2
-      ansible.windows.win_stat:
+    - name: Verifica Agent 2
+      win_stat:
         path: 'C:\Program Files\Zabbix Agent 2\zabbix_agent2.conf'
       register: agent2
 
-    - name: Config Agent 2
+    - name: Define Agent 2
       set_fact:
         zabbix_conf: 'C:\Program Files\Zabbix Agent 2\zabbix_agent2.conf'
-        zabbix_script_dir: 'C:\Program Files\Zabbix Agent 2\scripts'
+        zabbix_dir: 'C:\Program Files\Zabbix Agent 2\scripts'
         zabbix_service: 'Zabbix Agent 2'
       when: agent2.stat.exists
 
-    - name: Config Agent Clássico
+    - name: Define Agent Classico
       set_fact:
         zabbix_conf: 'C:\Program Files\Zabbix Agent\zabbix_agentd.conf'
-        zabbix_script_dir: 'C:\Program Files\Zabbix Agent\scripts'
+        zabbix_dir: 'C:\Program Files\Zabbix Agent\scripts'
         zabbix_service: 'Zabbix Agent'
       when: not agent2.stat.exists
 
-    - name: Criar diretório scripts
-      ansible.windows.win_file:
-        path: "{{ zabbix_script_dir }}"
+    - name: Criar pasta scripts
+      win_file:
+        path: "{{ zabbix_dir }}"
         state: directory
 
-    - name: Copiar script
-      ansible.windows.win_copy:
+    - name: Copiar PS1
+      win_copy:
         src: files/top_cpu.ps1
-        dest: "{{ zabbix_script_dir }}\\top_cpu.ps1"
+        dest: "{{ zabbix_dir }}\\top_cpu.ps1"
 
     - name: Adicionar UserParameter
-      ansible.windows.win_lineinfile:
-        path: "{{ zabbix_conf }}"
-        line: 'UserParameter=custom.topcpu,powershell.exe -ExecutionPolicy Bypass -File "{{ zabbix_script_dir }}\top_cpu.ps1"'
-        state: present
+      win_shell: |
+        $linha = 'UserParameter=custom.topcpu,powershell.exe -ExecutionPolicy Bypass -File "{{ zabbix_dir }}\top_cpu.ps1"'
 
-    - name: Reiniciar serviço
-      ansible.windows.win_service:
+        if (-not (Select-String -Path "{{ zabbix_conf }}" -Pattern "custom.topcpu" -Quiet)) {
+            Add-Content -Path "{{ zabbix_conf }}" -Value $linha
+        }
+
+    - name: Reiniciar agente
+      win_service:
         name: "{{ zabbix_service }}"
         state: restarted
