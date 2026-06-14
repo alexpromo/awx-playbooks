@@ -1,0 +1,46 @@
+---
+- name: Deploy Top CPU Script
+  hosts: windows
+  gather_facts: no
+
+  tasks:
+
+    - name: Verificar Agent 2
+      ansible.windows.win_stat:
+        path: 'C:\Program Files\Zabbix Agent 2\zabbix_agent2.conf'
+      register: agent2
+
+    - name: Config Agent 2
+      set_fact:
+        zabbix_conf: 'C:\Program Files\Zabbix Agent 2\zabbix_agent2.conf'
+        zabbix_script_dir: 'C:\Program Files\Zabbix Agent 2\scripts'
+        zabbix_service: 'Zabbix Agent 2'
+      when: agent2.stat.exists
+
+    - name: Config Agent Clássico
+      set_fact:
+        zabbix_conf: 'C:\Program Files\Zabbix Agent\zabbix_agentd.conf'
+        zabbix_script_dir: 'C:\Program Files\Zabbix Agent\scripts'
+        zabbix_service: 'Zabbix Agent'
+      when: not agent2.stat.exists
+
+    - name: Criar diretório scripts
+      ansible.windows.win_file:
+        path: "{{ zabbix_script_dir }}"
+        state: directory
+
+    - name: Copiar script
+      ansible.windows.win_copy:
+        src: files/top_cpu.ps1
+        dest: "{{ zabbix_script_dir }}\\top_cpu.ps1"
+
+    - name: Adicionar UserParameter
+      ansible.windows.win_lineinfile:
+        path: "{{ zabbix_conf }}"
+        line: 'UserParameter=custom.topcpu,powershell.exe -ExecutionPolicy Bypass -File "{{ zabbix_script_dir }}\top_cpu.ps1"'
+        state: present
+
+    - name: Reiniciar serviço
+      ansible.windows.win_service:
+        name: "{{ zabbix_service }}"
+        state: restarted
